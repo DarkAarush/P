@@ -15,9 +15,9 @@ bot = Client("QuizBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 # Extract MCQs from PDF
 def extract_quiz_questions(pdf_path):
     quiz_data = []
-    question_pattern = re.compile(r"^\d+\..*")  # Matches "1. What is..."
-    option_pattern = re.compile(r"^[A-D]\).*")  # Matches "A) Option"
-
+    question_pattern = re.compile(r"^\d+\.\s*(.+)")  # Matches "1. Question text..."
+    option_pattern = re.compile(r"^[A-D]\)\s*(.+)")  # Matches "A) Option text"
+    
     with pdfplumber.open(pdf_path) as pdf:
         question_data = None
 
@@ -30,18 +30,29 @@ def extract_quiz_questions(pdf_path):
             for line in lines:
                 line = line.strip()
 
-                if question_pattern.match(line):
+                # Detect and store question
+                match = question_pattern.match(line)
+                if match:
                     if question_data and len(question_data["options"]) >= 2:
-                        quiz_data.append(question_data)
-                    question_data = {"question": line, "options": [], "correct_option_id": None}
+                        quiz_data.append(question_data)  # Store previous question
+                    question_data = {
+                        "question": match.group(1), 
+                        "options": [], 
+                        "correct_option_id": None
+                    }
+                    continue
 
-                elif option_pattern.match(line) and question_data:
-                    question_data["options"].append(line[3:].strip())  # Remove "A) ", "B) " etc.
+                # Detect and store options
+                match = option_pattern.match(line)
+                if match and question_data:
+                    option_text = match.group(1).replace("*", "").strip()
+                    question_data["options"].append(option_text)
 
-                    # Detect correct answer (if marked with *)
+                    # Detect correct answer
                     if "*" in line:
                         question_data["correct_option_id"] = len(question_data["options"]) - 1
 
+        # Add the last question
         if question_data and len(question_data["options"]) >= 2:
             quiz_data.append(question_data)
 
