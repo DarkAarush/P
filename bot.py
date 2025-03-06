@@ -6,9 +6,9 @@ from pyrogram import Client, filters
 from pyrogram.types import Message
 
 # Bot credentials (replace with your own)
-API_ID = "YOUR_API_ID"
-API_HASH = "YOUR_API_HASH"
-BOT_TOKEN = "YOUR_BOT_TOKEN"
+API_ID = "25638120"
+API_HASH = "3b702ecd94ca01b76c1b78451a33833c"
+BOT_TOKEN = "5647751734:AAGf0uUjBf1C7NyqOeeMf1UXy4tQfXAZwro"
 
 bot = Client("QuizBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
