@@ -12,16 +12,29 @@ def download_file(url, filename):
         for chunk in response.iter_content(chunk_size=1024):
             f.write(chunk)
 
-# Function to extract questions from the PDF
+# Function to extract questions from the PDFPDF
+import pytesseract
+from pdf2image import convert_from_path
+
 def extract_questions(pdf_path):
     doc = fitz.open(pdf_path)
     extracted_text = ""
 
     for page in doc:
-        extracted_text += page.get_text("text")
+        text = page.get_text("text")
+        if not text.strip():  # If no text, use OCR
+            images = convert_from_path(pdf_path)
+            for img in images:
+                extracted_text += pytesseract.image_to_string(img)
+        else:
+            extracted_text += text
 
+    # Debug: Print extracted text
+    print("Extracted Text:\n", extracted_text[:1000])  
+
+    # Improved Regex
     pattern = re.findall(
-        r"Q\.\d+\s+([\s\S]+?)\nAns\s+A\)\s+([\s\S]+?)\s+B\)\s+([\s\S]+?)\s+C\)\s+([\s\S]+?)\s+D\)\s+([\s\S]+?)\s+Correct Answer:\s+([A-D])",
+        r"Q\.\d+[\s.:]+([\s\S]+?)\nA\)[\s]+([\s\S]+?)\nB\)[\s]+([\s\S]+?)\nC\)[\s]+([\s\S]+?)\nD\)[\s]+([\s\S]+?)\nCorrect Answer:\s*([A-D])",
         extracted_text, re.DOTALL)
 
     questions = []
