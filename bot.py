@@ -1,76 +1,60 @@
-import json
+import fitz  # PyMuPDF
 import re
-import pdfplumber
-from telegram import Update, Document
+import os
+from telegram import Update
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
 
-TOKEN = "5647751734:AAGf0uUjBf1C7NyqOeeMf1UXy4tQfXAZwro"
+# Function to extract questions from the PDF
+def extract_questions(pdf_path):
+    doc = fitz.open(pdf_path)
+    extracted_text = ""
 
-# Function to extract text from PDF
-def extract_text_from_pdf(pdf_path):
-    text = ""
-    with pdfplumber.open(pdf_path) as pdf:
-        for page in pdf.pages:
-            page_text = page.extract_text()
-            if page_text:
-                text += page_text + "\n"
-    return text
+    for page in doc:
+        extracted_text += page.get_text()
 
-# Function to extract questions & options
-def extract_questions_and_options(text):
+    # Regex pattern to match questions
+    pattern = re.findall(r"Q\.\d+\s+(.+?)\nAns\s+A\)\s+(.+?)\s+B\)\s+(.+?)\s+C\)\s+(.+?)\s+D\)\s+(.+?)\s+Correct Answer:\s+([A-D])", extracted_text)
+
     questions = []
-    
-    # Pattern for multiple-choice questions (MCQs)
-    question_pattern = re.compile(r"(\d+\..*?\?)\s*(A\).+?)(B\).+?)(C\).+?)(D\).+?)", re.DOTALL)
-    
-    for match in question_pattern.findall(text):
-        question = match[0].strip()
-        options = [opt.strip() for opt in match[1:]]
-        questions.append({"question": question, "options": options})
-    
+    for match in pattern:
+        q_text = f"Q. {match[0]}\n"
+        q_text += f"A). {match[1]}\nB). {match[2]}\nC). {match[3]}\nD). {match[4]}\n"
+        q_text += f"Correct Answer: {match[5]}"
+        questions.append(q_text)
+
     return questions
 
-# Handler for PDF uploads
-def handle_document(update: Update, context: CallbackContext):
+# Start command handler
+def start(update: Update, context: CallbackContext) -> None:
+    update.message.reply_text("Send me a PDF file containing questions, and I'll extract them for you!")
+
+# Handle PDF files
+def handle_document(update: Update, context: CallbackContext) -> None:
     file = update.message.document
-    if not file.file_name.endswith(".pdf"):
+    if file.mime_type != "application/pdf":
         update.message.reply_text("Please upload a valid PDF file.")
         return
-    
-    file_path = f"downloads/{file.file_name}"
-    file.get_file().download(file_path)
-    
-    # Extract text from PDF
-    pdf_text = extract_text_from_pdf(file_path)
-    
-    # Extract questions and options
-    questions_and_options = extract_questions_and_options(pdf_text)
 
-    if not questions_and_options:
-        update.message.reply_text("No questions found in the PDF.")
-        return
+    file_path = f"{file.file_id}.pdf"
+    file = context.bot.get_file(file.file_id)
+    file.download(file_path)
 
-    # Save to JSON file
-    json_path = f"questions/{file.file_name.replace('.pdf', '.json')}"
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(questions_and_options, f, indent=4, ensure_ascii=False)
+    update.message.reply_text("Extracting questions...")
 
-    # Send response to user
-    response_text = "**Extracted Questions:**\n\n"
-    for idx, item in enumerate(questions_and_options, 1):
-        response_text += f"{idx}. {item['question']}\n"
-        for opt in item["options"]:
-            response_text += f"{opt}\n"
-        response_text += "\n"
-    
-    update.message.reply_text(response_text[:4096])  # Telegram message limit
+    questions = extract_questions(file_path)
 
-# Start command
-def start(update: Update, context: CallbackContext):
-    update.message.reply_text("Send me a PDF with multiple-choice questions, and I'll extract them!")
+    os.remove(file_path)  # Remove file after extraction
 
-# Main function to start the bot
+    if questions:
+        for q in questions:
+            update.message.reply_text(q)
+    else:
+        update.message.reply_text("No valid questions found in the document.")
+
+# Main function
 def main():
+    TOKEN = "5647751734:AAGf0uUjBf1C7NyqOeeMf1UXy4tQfXAZwro"
+
     updater = Updater(TOKEN, use_context=True)
     dp = updater.dispatcher
 
