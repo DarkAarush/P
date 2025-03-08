@@ -1,41 +1,71 @@
+import os
 import fitz  # PyMuPDF
 import re
-import os
-import requests
+import pytesseract
+from pdf2image import convert_from_path
+import pdfplumber
 from telegram import Update
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
 
-# Function to download file from a given URL
-def download_file(url, filename):
-    response = requests.get(url, stream=True)
-    with open(filename, "wb") as f:
-        for chunk in response.iter_content(chunk_size=1024):
-            f.write(chunk)
+# 🔹 (Windows Only) Set Tesseract Path
+# Uncomment if using Windows and update the path
+# pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
-# Function to extract questions from the PDFPDF
-import pytesseract
-from pdf2image import convert_from_path
+# ✅ Function to extract text from normal PDFs
+def extract_text_from_pdf(pdf_path):
+    text = ""
+    try:
+        doc = fitz.open(pdf_path)
+        for page in doc:
+            text += page.get_text("text") + "\n"
+    except Exception as e:
+        print(f"❌ Error using PyMuPDF: {e}")
 
+    if not text.strip():
+        print("⚠ No text found with PyMuPDF. Trying pdfplumber...")
+        try:
+            with pdfplumber.open(pdf_path) as pdf:
+                text = "\n".join([page.extract_text() or "" for page in pdf.pages])
+        except Exception as e:
+            print(f"❌ Error using pdfplumber: {e}")
+
+    return text.strip()
+
+# ✅ Function to extract text using OCR (for scanned PDFs)
+def extract_text_from_scanned_pdf(pdf_path):
+    text = ""
+    try:
+        images = convert_from_path(pdf_path)
+        for img in images:
+            text += pytesseract.image_to_string(img) + "\n"
+    except Exception as e:
+        print(f"❌ OCR Extraction Failed: {e}")
+
+    return text.strip()
+
+# ✅ Function to extract questions from the text
 def extract_questions(pdf_path):
-    doc = fitz.open(pdf_path)
-    extracted_text = ""
+    text = extract_text_from_pdf(pdf_path)
 
-    for page in doc:
-        text = page.get_text("text")
-        if not text.strip():  # If no text, use OCR
-            images = convert_from_path(pdf_path)
-            for img in images:
-                extracted_text += pytesseract.image_to_string(img)
-        else:
-            extracted_text += text
+    if not text:
+        print("⚠ No text found in PDF. Trying OCR...")
+        text = extract_text_from_scanned_pdf(pdf_path)
 
-    # Debug: Print extracted text
-    print("Extracted Text:\n", extracted_text[:1000])  
+    if not text:
+        print("❌ No text extracted, even with OCR.")
+        return []
 
-    # Improved Regex
+    print("\n🔍 Extracted Text (First 500 chars):")
+    print(text[:500])  # Debugging output
+
+    # 🔹 Improved regex for different formats
     pattern = re.findall(
-        r"Q\.\d+[\s.:]+([\s\S]+?)\nA\)[\s]+([\s\S]+?)\nB\)[\s]+([\s\S]+?)\nC\)[\s]+([\s\S]+?)\nD\)[\s]+([\s\S]+?)\nCorrect Answer:\s*([A-D])",
-        extracted_text, re.DOTALL)
+        r"Q(?:\.|\s)?\d+[\s.:]+([\s\S]+?)\nA\)[\s]+([\s\S]+?)\nB\)[\s]+([\s\S]+?)\nC\)[\s]+([\s\S]+?)\nD\)[\s]+([\s\S]+?)\nCorrect Answer:\s*([A-D])",
+        text, re.DOTALL
+    )
+
+    if not pattern:
+        print("⚠ No questions found with regex. Check text format.")
 
     questions = []
     for match in pattern:
@@ -46,67 +76,45 @@ def extract_questions(pdf_path):
 
     return questions
 
-# Start command handler
+# ✅ Start command handler
 def start(update: Update, context: CallbackContext) -> None:
-    update.message.reply_text("Send me a **PDF file** (max 20MB) or a **Google Drive/Dropbox link** to a larger PDF, and I'll extract questions for you!")
+    update.message.reply_text("Send me a PDF file containing questions, and I'll extract them for you!")
 
-# Handle Google Drive or Dropbox links
-def handle_text(update: Update, context: CallbackContext) -> None:
-    text = update.message.text
-    if "drive.google.com" in text or "dropbox.com" in text:
-        update.message.reply_text("Downloading file from the provided link...")
-        
-        file_path = "downloaded_file.pdf"
-        try:
-            download_file(text, file_path)
-            questions = extract_questions(file_path)
-            os.remove(file_path)
-
-            if questions:
-                for q in questions[:10]:  # Limit messages
-                    update.message.reply_text(q)
-            else:
-                update.message.reply_text("No valid questions found in the document.")
-        except Exception as e:
-            update.message.reply_text(f"Failed to download or process the file: {e}")
-    else:
-        update.message.reply_text("Please send a valid Google Drive or Dropbox link.")
-
-# Handle PDF files (up to 20MB)
+# ✅ Handle incoming PDF files
 def handle_document(update: Update, context: CallbackContext) -> None:
     file = update.message.document
-    
-    if file.file_size > 20 * 1024 * 1024:  # Check if file is larger than 20MB
-        update.message.reply_text("File is too large! Please upload it to Google Drive or Dropbox and share the link.")
+    if file.mime_type != "application/pdf":
+        update.message.reply_text("Please upload a valid PDF file.")
         return
 
     file_path = f"{file.file_id}.pdf"
-    file_obj = context.bot.get_file(file.file_id)
-    file_obj.download(file_path)
+    file = context.bot.get_file(file.file_id)
+    file.download(file_path)
 
     update.message.reply_text("Extracting questions...")
 
     questions = extract_questions(file_path)
-    os.remove(file_path)
+
+    os.remove(file_path)  # Cleanup
 
     if questions:
-        for q in questions[:10]:
+        for q in questions[:5]:  # Send first 5 questions (avoid spam)
             update.message.reply_text(q)
+        if len(questions) > 5:
+            update.message.reply_text(f"...and {len(questions) - 5} more questions found!")
     else:
         update.message.reply_text("No valid questions found in the document.")
 
-# Main function
+# ✅ Main function to start the bot
 def main():
-    TOKEN = "5647751734:AAGf0uUjBf1C7NyqOeeMf1UXy4tQfXAZwro"
+    TOKEN = "5647751734:AAGf0uUjBf1C7NyqOeeMf1UXy4tQfXAZwro"  # 🔹 Replace with your actual Telegram Bot Token
 
     updater = Updater(TOKEN, use_context=True)
     dp = updater.dispatcher
 
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(MessageHandler(Filters.document.mime_type("application/pdf"), handle_document))
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_text))
 
-    print("Bot is running...")
     updater.start_polling()
     updater.idle()
 
