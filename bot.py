@@ -56,7 +56,7 @@ def extract_questions(pdf_path):
         return []
 
     print("\n🔍 Extracted Text (First 500 chars):")
-    print(text[:50000])  # Debugging output
+    print(text[:50000000])  # Debugging output
 
     # 🔹 Improved regex for different formats
     pattern = re.findall(
@@ -98,9 +98,9 @@ def handle_document(update: Update, context: CallbackContext) -> None:
     os.remove(file_path)  # Cleanup
 
     if questions:
-        for q in questions[:5]:  # Send first 5 questions (avoid spam)
+        for q in questions[:500000]:  # Send first 5 questions (avoid spam)
             update.message.reply_text(q)
-        if len(questions) > 5:
+        if len(questions) > 500000:
             update.message.reply_text(f"...and {len(questions) - 5} more questions found!")
     else:
         update.message.reply_text("No valid questions found in the document.")
