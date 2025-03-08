@@ -56,7 +56,7 @@ def extract_questions(pdf_path):
         return []
 
     print("\n🔍 Extracted Text (First 500 chars):")
-    print(text[:500])  # Debugging output
+    print(text[:50000])  # Debugging output
 
     # 🔹 Improved regex for different formats
     pattern = re.findall(
